@@ -15,6 +15,7 @@
 #include "msm_camera_io_util.h"
 #include "msm_camera_i2c_mux.h"
 #include "msm_cci.h"
+#include "../msm_sensor.h"
 
 /*#define CONFIG_MSM_CAMERA_DT_DEBUG*/
 #undef CDBG
@@ -1054,7 +1055,8 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 				(power_setting->delay * 1000) + 1000);
 		}
 	}
-
+#if defined(CONFIG_IMX135_Z5S_069) || defined(CONFIG_IMX135_Z5S)
+#else
 	if (device_type == MSM_CAMERA_PLATFORM_DEVICE) {
 		rc = sensor_i2c_client->i2c_func_tbl->i2c_util(
 			sensor_i2c_client, MSM_CCI_INIT);
@@ -1063,11 +1065,18 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 			goto power_up_failed;
 		}
 	}
-
+#endif
 	CDBG("%s exit\n", __func__);
 	return 0;
 power_up_failed:
 	pr_err("%s:%d failed\n", __func__, __LINE__);
+#if defined(CONFIG_IMX135_Z5S_069) || defined(CONFIG_IMX135_Z5S)
+#else
+	/*if (device_type == MSM_CAMERA_PLATFORM_DEVICE) {
+		sensor_i2c_client->i2c_func_tbl->i2c_util(
+			sensor_i2c_client, MSM_CCI_RELEASE);
+	}*/
+#endif
 	for (index--; index >= 0; index--) {
 		CDBG("%s index %d\n", __func__, index);
 		power_setting = &ctrl->power_setting[index];
@@ -1192,8 +1201,7 @@ int msm_camera_power_down(struct msm_camera_power_ctrl_t *ctrl,
 			gpio_set_value_cansleep(
 				ctrl->gpio_conf->gpio_num_info->gpio_num
 				[pd->seq_val],
-				ctrl->gpio_conf->gpio_num_info->gpio_num
-				[pd->config_val]);
+				pd->config_val);
 			break;
 		case SENSOR_VREG:
 			if (pd->seq_val >= CAM_VREG_MAX) {
@@ -1207,11 +1215,12 @@ int msm_camera_power_down(struct msm_camera_power_ctrl_t *ctrl,
 						pd->seq_type,
 						pd->seq_val);
 
-			if (ps)
+			if (ps) {
 				msm_camera_config_single_vreg(ctrl->dev,
 					&ctrl->cam_vreg[pd->seq_val],
 					(struct regulator **)&ps->data[0],
 					0);
+			}
 			else
 				pr_err("%s error in power up/down seq data\n",
 								__func__);

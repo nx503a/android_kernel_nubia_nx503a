@@ -19,16 +19,17 @@ static struct msm_sensor_ctrl_t imx135_s_ctrl;
 static struct msm_sensor_power_setting imx135_power_setting[] = {
 	{
 		.seq_type = SENSOR_VREG,
-		.seq_val = CAM_VDIG,
+		.seq_val = 0,
 		.config_val = 0,
 		.delay = 0,
 	},
 	{
 		.seq_type = SENSOR_VREG,
-		.seq_val = CAM_VANA,
+		.seq_val = 1,
 		.config_val = 0,
 		.delay = 0,
 	},
+#if 0
 	{
 		.seq_type = SENSOR_VREG,
 		.seq_val = CAM_VIO,
@@ -41,6 +42,7 @@ static struct msm_sensor_power_setting imx135_power_setting[] = {
 		.config_val = 0,
 		.delay = 0,
 	},
+#endif
 	{
 		.seq_type = SENSOR_GPIO,
 		.seq_val = SENSOR_GPIO_RESET,

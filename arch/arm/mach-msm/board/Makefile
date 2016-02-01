@@ -1,0 +1,1 @@
+obj-$(CONFIG_BOARD_ZTEMT_NX503A) += board-8974-NX503A.o board-8974-gpiomux-NX503A.o clock-8974-NX503A.o

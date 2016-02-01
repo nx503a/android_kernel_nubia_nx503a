@@ -27,6 +27,13 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 #endif
 
+/*ZTEMT: Jinghongliang Add for Read AF OTP  ---Start*/
+#ifdef CONFIG_IMX135_Z5S
+extern unsigned short af_start_value;
+extern unsigned short af_infinity_value;
+extern unsigned short af_macro_value;
+#endif
+/*ZTEMT: Jinghongliang Add for Read AF OTP  ---End*/
 
 static int32_t msm_actuator_power_up(struct msm_actuator_ctrl_t *a_ctrl);
 static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl);
@@ -98,7 +105,15 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 				i2c_byte1 = write_arr[i].reg_addr;
 				i2c_byte2 = value;
 				if (size != (i+1)) {
+#ifdef CONFIG_IMX135_Z5S
+					if (a_ctrl->i2c_client.cci_client->sid == 0x1c >> 1) {
+						i2c_byte2 = (value & 0x0300) >> 8;
+					} else {
+						i2c_byte2 = value & 0xFF;
+					}						
+#else
 					i2c_byte2 = value & 0xFF;
+#endif
 					CDBG("byte1:0x%x, byte2:0x%x\n",
 						i2c_byte1, i2c_byte2);
 					i2c_tbl[a_ctrl->i2c_tbl_index].
@@ -110,7 +125,15 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 					a_ctrl->i2c_tbl_index++;
 					i++;
 					i2c_byte1 = write_arr[i].reg_addr;
+#ifdef CONFIG_IMX135_Z5S
+					if (a_ctrl->i2c_client.cci_client->sid == 0x1c >> 1) {
+						i2c_byte2 = value & 0xFF;
+					} else {
+						i2c_byte2 = (value & 0xFF00) >> 8;
+					}
+#else
 					i2c_byte2 = (value & 0xFF00) >> 8;
+#endif
 				}
 			} else {
 				i2c_byte1 = (value & 0xFF00) >> 8;
@@ -407,7 +430,37 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 
 	if (a_ctrl->step_position_table == NULL)
 		return -ENOMEM;
-
+#ifdef CONFIG_IMX135_Z5S
+	if ((set_info->actuator_params.i2c_addr != 0x1c) && (set_info->actuator_params.i2c_addr != 0x48)) {
+		cur_code = set_info->af_tuning_params.initial_code;
+		a_ctrl->step_position_table[step_index++] = cur_code;
+		for (region_index = 0;
+			region_index < a_ctrl->region_size;
+			region_index++) {
+			code_per_step =
+				a_ctrl->region_params[region_index].code_per_step;
+			step_boundary =
+				a_ctrl->region_params[region_index].
+				step_bound[MOVE_NEAR];
+			for (; step_index <= step_boundary;
+				step_index++) {
+				cur_code += code_per_step;
+				if (cur_code < max_code_size)
+					a_ctrl->step_position_table[step_index] =
+						cur_code;
+				else {
+					for (; step_index <
+						set_info->af_tuning_params.total_steps;
+						step_index++)
+						a_ctrl->
+							step_position_table[
+							step_index] =
+							max_code_size;
+				}
+			}
+		}
+	}
+#else
 	cur_code = set_info->af_tuning_params.initial_code;
 	a_ctrl->step_position_table[step_index++] = cur_code;
 	for (region_index = 0;
@@ -435,6 +488,12 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 			}
 		}
 	}
+#endif
+
+	//for(i=0;i<set_info->af_tuning_params.total_steps;i++)
+	// printk("%s:jun] table[%d]=%d\n",__func__, i,a_ctrl->step_position_table[i]);
+
+	/*ZTEMT: Jinghongliang Add for Read AF OTP	---end*/
 	CDBG("Exit\n");
 	return 0;
 }
@@ -444,10 +503,25 @@ static int32_t msm_actuator_set_default_focus(
 	struct msm_actuator_move_params_t *move_params)
 {
 	int32_t rc = 0;
+	//int32_t step_boundary= a_ctrl->region_params[0].step_bound[MOVE_NEAR];
 	CDBG("Enter\n");
+	
+	#if 0  //jun add for avoid click sound when exit from camera
+	pr_err("%s[jun]Enter, step_boundary=%d,\n",__func__,step_boundary);
+	if (a_ctrl->curr_step_pos != 0) {
+		move_params->dest_step_pos = step_boundary;
+		rc = a_ctrl->func_tbl->actuator_move_focus(a_ctrl, move_params);
+		//mdelay(10);
+		move_params->dest_step_pos = 0;
+		rc = a_ctrl->func_tbl->actuator_move_focus(a_ctrl, move_params);
+		}
+	pr_err("%s[jun]Exit\n",__func__);
+	#else
 
 	if (a_ctrl->curr_step_pos != 0)
 		rc = a_ctrl->func_tbl->actuator_move_focus(a_ctrl, move_params);
+	#endif
+	
 	CDBG("Exit\n");
 	return rc;
 }
@@ -786,7 +860,7 @@ static int msm_actuator_open(struct v4l2_subdev *sd,
 	struct v4l2_subdev_fh *fh) {
 	int rc = 0;
 	struct msm_actuator_ctrl_t *a_ctrl =  v4l2_get_subdevdata(sd);
-	CDBG("Enter\n");
+	pr_err("Enter\n");
 	if (!a_ctrl) {
 		pr_err("failed\n");
 		return -EINVAL;
@@ -797,7 +871,7 @@ static int msm_actuator_open(struct v4l2_subdev *sd,
 		if (rc < 0)
 			pr_err("cci_init failed\n");
 	}
-	CDBG("Exit\n");
+	pr_err("Exit\n");
 	return rc;
 }
 

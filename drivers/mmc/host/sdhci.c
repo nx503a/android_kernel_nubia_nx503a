@@ -2035,8 +2035,11 @@ static int sdhci_do_start_signal_voltage_switch(struct sdhci_host *host,
 				 */
 				present_state = sdhci_readl(host,
 							SDHCI_PRESENT_STATE);
-				if ((present_state & SDHCI_DATA_LVL_MASK) ==
-				     SDHCI_DATA_LVL_MASK)
+				/*
+				 * WiFi PATCH
+				 */
+/*				if ((present_state & SDHCI_DATA_LVL_MASK) ==
+				     SDHCI_DATA_LVL_MASK)*/
 					return 0;
 			}
 		}

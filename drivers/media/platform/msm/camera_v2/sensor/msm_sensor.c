@@ -396,6 +396,30 @@ static struct msm_cam_clk_info cam_8974_clk_info[] = {
 	[SENSOR_CAM_CLK] = {"cam_clk", 0},
 };
 
+#if defined(CONFIG_IMX135_Z5S_069) ||defined(CONFIG_IMX135_Z5S)
+int temp_i2c_data_type = 0 ;
+static int RegRead8byte_adaptive(uint16_t reg_addr, struct msm_sensor_ctrl_t *s_ctrl)
+{
+	uint8_t data[8];
+	int32_t rc=0;
+	enum msm_camera_i2c_reg_addr_type addr_type;
+	addr_type = s_ctrl->sensor_i2c_client->addr_type;
+	memset(data, 0x00, 8);
+	s_ctrl->sensor_i2c_client->addr_type = MSM_CAMERA_I2C_BYTE_ADDR;
+
+	rc =  s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read_seq
+	 (
+		s_ctrl->sensor_i2c_client,
+		reg_addr, &data[0],
+		8);
+	if (rc < 0) {
+		pr_err("%s: line %d rc = %d\n", __func__, __LINE__, rc);
+	}
+	s_ctrl->sensor_i2c_client->addr_type = addr_type;
+	CDBG("sss %x %x %x %x\n", data[0],data[1],data[2],data[3]);
+	return rc;
+}
+#endif
 int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	struct msm_camera_power_ctrl_t *power_info;
@@ -452,12 +476,65 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 		sensor_i2c_client);
 	if (rc < 0)
 		return rc;
+	
+#if defined(CONFIG_IMX135_Z5S_069) ||defined(CONFIG_IMX135_Z5S)
+      if (!strncmp(s_ctrl->sensordata->sensor_name, "imx135_z5s", 32)) {
+		s_ctrl->sensor_i2c_client->cci_client->sid = 0x1c >> 1;
+		if (s_ctrl->sensor_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
+			rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_util(
+				s_ctrl->sensor_i2c_client, MSM_CCI_INIT);
+			if (rc < 0) {
+				pr_err("%s cci_init failed\n", __func__);
+				goto power_up_failed;
+			}
+		}
+		rc = RegRead8byte_adaptive(0x02, s_ctrl);
+		if (rc < 0) {
+				pr_err("%s cci_init failed\n", __func__);
+				goto power_up_failed;
+		}
+		if (s_ctrl->sensor_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
+			s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_util(
+				s_ctrl->sensor_i2c_client, MSM_CCI_RELEASE);
+		}
+		s_ctrl->sensor_i2c_client->cci_client->sid = s_ctrl->sensordata->slave_info->sensor_slave_addr >> 1;
+	}
+       if (!strncmp(s_ctrl->sensordata->sensor_name, "imx135_z5s_069", 32)) {
+		s_ctrl->sensor_i2c_client->cci_client->sid = 0x18 >> 1;
+		if (s_ctrl->sensor_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
+			rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_util(
+				s_ctrl->sensor_i2c_client, MSM_CCI_INIT);
+			if (rc < 0) {
+				pr_err("%s cci_init failed\n", __func__);
+				goto power_up_failed;
+			}
+		}
+		rc = RegRead8byte_adaptive(0x94, s_ctrl);
+		if (rc < 0) {
+				pr_err("%s cci_init failed\n", __func__);
+				goto power_up_failed;
+		}
+		if (s_ctrl->sensor_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
+			s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_util(
+				s_ctrl->sensor_i2c_client, MSM_CCI_RELEASE);
+		}
+		s_ctrl->sensor_i2c_client->cci_client->sid = s_ctrl->sensordata->slave_info->sensor_slave_addr >> 1;
+	}
+		
+#endif
+
 	rc = msm_sensor_check_id(s_ctrl);
 	if (rc < 0)
 		msm_camera_power_down(power_info, s_ctrl->sensor_device_type,
 					sensor_i2c_client);
 
 	return rc;
+#if defined(CONFIG_IMX135_Z5S_069) ||defined(CONFIG_IMX135_Z5S)
+	power_up_failed:	
+		msm_camera_power_down(power_info, s_ctrl->sensor_device_type,
+			sensor_i2c_client);
+	return -1;
+#endif
 }
 
 int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
@@ -1035,6 +1112,52 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 		}
 		break;
 	}
+	/* ZTEMT: Jinghongliang Add for Manual AF Mode ----Start */
+	case CFG_SET_MANUAL_AF_ZTEMT: {
+			int32_t value = 0;
+			int32_t lens_position = 0;
+			uint16_t MSB = 0;
+			uint16_t LSB = 0;
+			uint16_t addr = 0;
+			uint16_t data = 0;
+			if(copy_from_user(&value,
+				(void *)cdata->cfg.setting,sizeof(int32_t))){
+				pr_err("%s:%d failed\n", __func__, __LINE__);
+				rc = -EFAULT;
+			break;
+			}else{
+				printk("<ZTEMT_CAM> Manual AF value = %d \n",value);
+				if(value < 0 || value > 79){     /* if over total steps*/
+					break;
+				}
+				
+				if(value < 5){
+					lens_position = 100+10*value;
+				}else{
+				    lens_position = 140 + 7*(value-4);
+				}
+				if(value == 79)
+					lens_position = 900;   /* push the VCM to Macro position*/
+
+				MSB = ( lens_position & 0x0300 ) >> 8;
+				LSB = lens_position & 0xFF;
+				lens_position = lens_position | 0xF400;
+				addr = (lens_position & 0xFF00) >> 8;
+				data = lens_position & 0xFF;
+				printk("<<<ZTEMT_JHL>>> This sensor not support Manual AF\n");
+			}
+		break;
+	  }
+	/* ZTEMT: Jinghongliang Add for Manual AF Mode ----End */
+	//	#ifdef CONFIG_ZTEMT_CAMERA_OIS   //ZTEMT CAMERA FOR OIS MENU ----START
+    case CFG_ENABLE_OIS: {
+		break;
+	}
+
+    case CFG_DISABLE_OIS: {
+		break;
+	}
+
 	default:
 		rc = -EFAULT;
 		break;
@@ -1114,6 +1237,10 @@ static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl = {
 		msm_camera_cci_i2c_write_table_w_microdelay,
 	.i2c_util = msm_sensor_cci_i2c_util,
 	.i2c_write_conf_tbl = msm_camera_cci_i2c_write_conf_tbl,
+#ifdef CONFIG_IMX135_Z5S
+	.i2c_write_seq = msm_camera_cci_i2c_write_seq,
+#endif
+
 };
 
 static struct msm_camera_i2c_fn_t msm_sensor_qup_func_tbl = {
